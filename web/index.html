@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            margin: auto;
+            max-width: 640px;
+        }
+
+        @media only screen and (max-width: 640px) {
+            body {
+                margin: 0 3% 0;
+                max-width: 100%;
+            }
+        }
+
+        .setting {
+            margin: 8px 5px;
+            font-size: 80%
+        }
+
+        .submit {
+            margin: 10px 0 0 0;
+            font-size: 75%
+        }
+
+        input {
+            margin: 0 0 0 5px;
+        }
+
+        input.port {
+            margin: 0 0 0 0;
+        }
+
+        label.ipAddress {
+            margin: 0 11px 0 0;
+        }
+
+        p.status {
+            margin: 8px 5px;
+            font-size: 80%
+        }
+
+        span.status {
+            margin: 0 10px
+        }
+    </style>
+</head>
+
+<body>
+
+    <h2>智能电源管理控制器</h2>
+
+    <form action="/">
+        <fieldset>
+            <legend>本机设置</legend>
+            <div class="setting">
+                <label>设备名称:</label>
+                <input type="text" name="hostMask" value="" size="23">
+            </div>
+            <div class="setting">
+                <label class="ipAddress">IP 地址:</label>
+                <input type="text" name="hostIp" value="" size="14">
+            </div>
+            <div class="setting">
+                <label>子网掩码:</label>
+                <input type="text" name="hostMask" value="" size="14">
+            </div>
+            <div class="setting">
+                <label>默认网关:</label>
+                <input type="text" name="gatewayIp" value="" size="14">
+            </div>
+            <div class="submit">
+                <input type="submit" value="提交">
+            </div>
+        </fieldset>
+    </form>
+    </br>
+    <form action="/">
+        <fieldset>
+            <legend>服务器设置</legend>
+            <div class="setting">
+                <label class="ipAddress">IP 地址:</label>
+                <input type="text" name="serverIp" value="" size="14">
+                :
+                <input class="port" type="text" name="serverPort" value="" size='5'>
+            </div>
+            <div class="submit">
+                <input type="submit" value="提交">
+            </div>
+
+        </fieldset>
+    </form>
+    </br>
+    <fieldset>
+        <legend>设备状态:</legend>
+        <div>
+            <p class="status">设备名称:<span id="hostName" class="status"></span></p>
+            <p class="status">本机IP地址:<span id="hostIp" class="status"></span></p>
+            <p class="status">子网掩码:<span id="hostMask" class="status"></span></p>
+            <p class="status">网关IP地址:<span id="gatewayIp" class="status"></span></p>
+            <p class="status">服务器IP地址:<span id="serverIp" class="status"></span></p>
+            <p class="status">服务器连接状态:<span id="connectStatus" class="status">未连接</span></p>
+            <p class="status">电源状态:<span id="powerStatus" class="status">未知</span></p>
+        </div>
+    </fieldset>
+
+</body>
+
+<script>
+    (function () {
+        var httpRequest;
+        var requestStatus = "Normal"; // "Normal" or "Error"
+
+        function makeRequest() {
+            httpRequest = new XMLHttpRequest();
+
+            if (!httpRequest) {
+                alert('发起http请求失败！');
+                return false;
+            }
+            httpRequest.onreadystatechange = alertContents;
+            httpRequest.open('GET', 'api/status');
+            httpRequest.send();
+        }
+
+        function alertContents() {
+            try {
+                if (httpRequest.readyState === XMLHttpRequest.DONE) {
+                    if (httpRequest.status === 200) {
+                        requestStatus = "Normal";
+                        var response = JSON.parse(httpRequest.responseText);
+                        document.getElementById('hostName').innerHTML = response.host_name;
+                        document.getElementById('hostIp').innerHTML = response.host_ip;
+                        document.getElementById('hostMask').innerHTML = response.host_mask;
+                        document.getElementById('gatewayIp').innerHTML = response.gateway_ip;
+                        document.getElementById('serverIp').innerHTML = response.server_ip;
+                        document.getElementById('connectStatus').innerHTML = response.connect_status;
+                        document.getElementById('powerStatus').innerHTML = response.power_status;
+                    } else {
+                        // console.log(requestStatus);
+                        if (requestStatus === "Normal") {
+                            requestStatus = "Error";
+                            alert('数据请求失败！');
+                        }
+                    }
+                }
+            } catch (e) {
+                alert('异常：' + e.description);
+            }
+        }
+
+        makeRequest();
+        setInterval(makeRequest, 2000)
+    })();
+</script>
+
+</html>
