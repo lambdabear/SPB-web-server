@@ -28,11 +28,29 @@
         }
 
         input {
+            /* required to properly style form 
+            elements on WebKit based browsers */
+            -webkit-appearance: none;
+
+            border: 1px solid grey;
+            font-family: inherit;
+
+            -moz-box-sizing: border-box;
+            box-sizing: border-box;
             margin: 0 0 0 5px;
+        }
+
+        input[type=submit] {
+            padding: 3px 13px;
+            background: #ccc;
+            border: 0 none;
+            -webkit-border-radius: 5px;
+            border-radius: 5px;
         }
 
         input.port {
             margin: 0 0 0 0;
+            width: 4em;
         }
 
         label.ipAddress {
@@ -47,6 +65,15 @@
         span.status {
             margin: 0 10px
         }
+
+
+        input:invalid {
+            box-shadow: 0 0 5px 1px red;
+        }
+
+        input:focus:invalid {
+            box-shadow: none;
+        }
     </style>
 </head>
 
@@ -59,22 +86,25 @@
             <legend>本机设置</legend>
             <div class="setting">
                 <label>设备名称:</label>
-                <input type="text" name="hostMask" value="" size="23">
+                <input type="text" name="hostName" value="" size="23">
             </div>
             <div class="setting">
                 <label class="ipAddress">IP 地址:</label>
-                <input type="text" name="hostIp" value="" size="14">
+                <input class="ipInput" type="text" name="hostIp" value="" size="14"
+                    pattern="((^|\.)((25[0-5])|(2[0-4]\d)|(1\d\d)|([1-9]?\d))){4}$">
             </div>
             <div class="setting">
                 <label>子网掩码:</label>
-                <input type="text" name="hostMask" value="" size="14">
+                <input class="ipInput" type="text" name="hostMask" value="" size="14"
+                    pattern="^(((255\.){3}(255|254|252|248|240|224|192|128|0+))|((255\.){2}(255|254|252|248|240|224|192|128|0+)\.0)|((255\.)(255|254|252|248|240|224|192|128|0+)(\.0+){2})|((255|254|252|248|240|224|192|128|0+)(\.0+){3}))$">
             </div>
             <div class="setting">
                 <label>默认网关:</label>
-                <input type="text" name="gatewayIp" value="" size="14">
+                <input class="ipInput" type="text" name="gatewayIp" value="" size="14"
+                    pattern="((^|\.)((25[0-5])|(2[0-4]\d)|(1\d\d)|([1-9]?\d))){4}$">
             </div>
             <div class="submit">
-                <input type="submit" value="提交">
+                <input type="submit" value="保存">
             </div>
         </fieldset>
     </form>
@@ -84,19 +114,20 @@
             <legend>服务器设置</legend>
             <div class="setting">
                 <label class="ipAddress">IP 地址:</label>
-                <input type="text" name="serverIp" value="" size="14">
+                <input class="ipInput" type="text" name="serverIp" value="" size="14"
+                    pattern="((^|\.)((25[0-5])|(2[0-4]\d)|(1\d\d)|([1-9]?\d))){4}$">
                 :
-                <input class="port" type="text" name="serverPort" value="" size='5'>
+                <input class="port" type="number" min="0" max="65535" name="serverPort" value="">
             </div>
             <div class="submit">
-                <input type="submit" value="提交">
+                <input type="submit" value="保存">
             </div>
 
         </fieldset>
     </form>
     </br>
     <fieldset>
-        <legend>设备状态:</legend>
+        <legend>设备状态</legend>
         <div>
             <p class="status">设备名称:<span id="hostName" class="status"></span></p>
             <p class="status">本机IP地址:<span id="hostIp" class="status"></span></p>
@@ -114,6 +145,18 @@
     (function () {
         var httpRequest;
         var requestStatus = "Normal"; // "Normal" or "Error"
+
+        // resize input size for IP address in webkit browsers
+        (function () {
+            if (navigator.userAgent.indexOf('iPhone') !== -1) {
+                var ipInputs = document.getElementsByClassName('ipInput');
+                Array.prototype.forEach.call(ipInputs, e => {
+                    e.size = '20';
+                });
+                document.getElementsByName('hostName')[0].size = '40';
+                // alert(navigator.userAgent)
+            }
+        })();
 
         function makeRequest() {
             httpRequest = new XMLHttpRequest();
