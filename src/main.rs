@@ -4,10 +4,10 @@ extern crate serde_json;
 
 use actix_web::{fs::NamedFile, server, App, Error, HttpRequest, HttpResponse, Responder, Result};
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::Path;
 
 fn index(_req: &HttpRequest) -> Result<NamedFile> {
-    let path = PathBuf::from(r"/Users/ethanzhang/Projects/rust/smart-power-box/web/index.html");
+    let path = Path::new("./index.html");
     Ok(NamedFile::open(path)?)
 }
 
