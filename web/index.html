@@ -81,7 +81,7 @@
 
     <h2>智能电源管理控制器</h2>
 
-    <form action="/">
+    <form id="hostSetting">
         <fieldset>
             <legend>本机设置</legend>
             <div class="setting">
@@ -109,7 +109,7 @@
         </fieldset>
     </form>
     </br>
-    <form action="/">
+    <form id="mqttServerSetting">
         <fieldset>
             <legend>服务器设置</legend>
             <div class="setting">
@@ -156,6 +156,48 @@
                 document.getElementsByName('hostName')[0].size = '40';
                 // alert(navigator.userAgent)
             }
+        })();
+
+        // add mqttServerSetting form submit listener
+        (function () {
+            document.getElementById("mqttServerSetting").addEventListener("submit", function(event) {
+                event.preventDefault();
+
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', 'api/setMqttServer', true);
+                xhr.setRequestHeader("Content-Type", "application/json");
+
+                var formData = new FormData(event.target);
+                var data = {
+                    ip: formData.get('serverIp'),
+                    port: parseInt(formData.get('serverPort')),
+                }
+                xhr.send(JSON.stringify(data));
+
+                event.target.reset();
+            });
+        })();
+
+        // add hostSetting form submit listener
+        (function () {
+            document.getElementById("hostSetting").addEventListener("submit", function(event) {
+                event.preventDefault();
+
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', 'api/setHost', true);
+                xhr.setRequestHeader("Content-Type", "application/json");
+
+                var formData = new FormData(event.target);
+                var data = {
+                    name: formData.get('hostName'),
+                    ip: formData.get('hostIp'),
+                    mask: formData.get('hostMask'),
+                    gateway: formData.get('gatewayIp'),
+                }
+                xhr.send(JSON.stringify(data));
+
+                event.target.reset();
+            });
         })();
 
         function makeRequest() {

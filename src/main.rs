@@ -1,9 +1,12 @@
-extern crate actix_web;
-extern crate serde;
-extern crate serde_json;
+// extern crate actix_web;
+// extern crate serde;
+// extern crate serde_json;
 
-use actix_web::{fs::NamedFile, server, App, Error, HttpRequest, HttpResponse, Responder, Result};
-use serde::Serialize;
+use actix_web::fs::NamedFile;
+use actix_web::*;
+use futures::future::Future;
+use serde::{Deserialize, Serialize};
+
 use std::path::Path;
 
 fn index(_req: &HttpRequest) -> Result<NamedFile> {
@@ -47,12 +50,48 @@ fn get_status(_req: &HttpRequest) -> impl Responder {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct HostSetting {
+    name: String,
+    ip: String,
+    mask: String,
+    gateway: String,
+}
+
+fn set_host(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Error>> {
+    req.json()
+        .from_err()
+        .and_then(|val: HostSetting| {
+            println!("model: {:?}", val); // TODO:
+            Ok(HttpResponse::Ok().json(val)) // <- send response
+        })
+        .responder()
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MqttServerSetting {
+    ip: String,
+    port: u16,
+}
+
+fn set_mqtt_server(req: &HttpRequest) -> Box<Future<Item = HttpResponse, Error = Error>> {
+    req.json()
+        .from_err()
+        .and_then(|val: MqttServerSetting| {
+            println!("model: {:?}", val); // TODO:
+            Ok(HttpResponse::Ok().json(val)) // <- send response
+        })
+        .responder()
+}
+
 fn main() {
     server::new(|| {
         vec![
             App::new()
                 .prefix("/api")
-                .resource("/status", |r| r.f(get_status)),
+                .resource("/status", |r| r.f(get_status))
+                .resource("/setHost", |r| r.f(set_host))
+                .resource("/setMqttServer", |r| r.f(set_mqtt_server)),
             App::new().resource("/", |r| r.f(index)),
         ]
     })
