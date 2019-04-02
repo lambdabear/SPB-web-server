@@ -11,4 +11,8 @@ serde_json = "1.0"
 futures = "0.1"
 ip-addr-op = { path = "../ip-addr-op"}
 iproute = { path = "../iproute" }
+spb-serial-data-parser = { path = "../spb-serial-data-parser"}
+spb-data-service = { path = "../spb-data-service" }
 ipnetwork = "0.14"
+rumqtt = "0.30"
+rand = "0.6"

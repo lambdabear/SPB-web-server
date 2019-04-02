@@ -4,10 +4,14 @@ use futures::future::Future;
 use ip_addr_op::*;
 use ipnetwork::*;
 use iproute::*;
+use rumqtt::MqttClient;
 use serde::{Deserialize, Serialize};
+use spb_data_service::setup_client;
+use spb_serial_data_parser::{Battery, DcOut, SwIn, SwOut, Ups};
 
 use std::net::Ipv4Addr;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 fn index(_req: &HttpRequest<State>) -> Result<NamedFile> {
     let path = Path::new("./index.html");
@@ -22,7 +26,7 @@ struct Status {
     gateway_ip: String,
     server_ip: &'static str,
     connect_status: &'static str,
-    power_status: &'static str,
+    power_status: String,
 }
 
 impl Responder for Status {
@@ -38,11 +42,16 @@ impl Responder for Status {
     }
 }
 
-#[derive(Debug)]
 struct State {
     handle: Handle,
     ifname: String,
     config_ip: Ipv4Addr,
+    swin: Arc<Mutex<SwIn>>,
+    swout: Arc<Mutex<SwOut>>,
+    ups: Arc<Mutex<Ups>>,
+    battery: Arc<Mutex<Battery>>,
+    dcout: Arc<Mutex<DcOut>>,
+    mqtt_client: Arc<Mutex<Option<MqttClient>>>,
 }
 
 impl Clone for State {
@@ -51,6 +60,12 @@ impl Clone for State {
             ifname: self.ifname.clone(),
             handle: self.handle.clone(),
             config_ip: self.config_ip.clone(),
+            swin: self.swin.clone(),
+            swout: self.swout.clone(),
+            ups: self.ups.clone(),
+            battery: self.battery.clone(),
+            dcout: self.dcout.clone(),
+            mqtt_client: self.mqtt_client.clone(),
         }
     }
 }
@@ -59,16 +74,20 @@ fn get_status(req: &HttpRequest<State>) -> impl Responder {
     let (ip_addr, mask) = match get_ip_addrs(req.state().handle.clone(), req.state().ifname.clone())
     {
         Ok(addrs) => {
-            let (addr, prefix) = addrs[addrs.len() - 1];
-            match Ipv4Network::new(addr, prefix) {
-                Ok(a) => {
-                    let mask = a.mask();
-                    (addr.to_string(), mask.to_string())
+            if addrs.len() > 0 {
+                let (addr, prefix) = addrs[addrs.len() - 1];
+                match Ipv4Network::new(addr, prefix) {
+                    Ok(a) => {
+                        let mask = a.mask();
+                        (addr.to_string(), mask.to_string())
+                    }
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        (String::from(""), String::from(""))
+                    }
                 }
-                Err(e) => {
-                    eprintln!("{}", e);
-                    (String::from(""), String::from(""))
-                }
+            } else {
+                (String::from(""), String::from(""))
             }
         }
         Err(_) => (String::from(""), String::from("")),
@@ -77,6 +96,27 @@ fn get_status(req: &HttpRequest<State>) -> impl Responder {
         Ok(ref routes) if routes.len() > 0 => routes[0].gateway().to_string(),
         _ => String::from(""),
     };
+    let swin = match req.state().swin.lock() {
+        Ok(swin) => format!("{:?}", *swin),
+        Err(_) => String::from(""),
+    };
+    let swout = match req.state().swout.lock() {
+        Ok(swout) => format!("{:?}", *swout),
+        Err(_) => String::from(""),
+    };
+    let ups = match req.state().ups.lock() {
+        Ok(ups) => format!("{:?}", *ups),
+        Err(_) => String::from(""),
+    };
+    let battery = match req.state().battery.lock() {
+        Ok(battery) => format!("{:?}", *battery),
+        Err(_) => String::from(""),
+    };
+    let dcout = match req.state().dcout.lock() {
+        Ok(dcout) => format!("{:?}", *dcout),
+        Err(_) => String::from(""),
+    };
+    let power_status = format!("{}\n{}\n{}\n{}\n{}", swin, swout, ups, battery, dcout);
     Status {
         host_name: "***分行人民街分理处",
         host_ip: ip_addr,
@@ -84,7 +124,7 @@ fn get_status(req: &HttpRequest<State>) -> impl Responder {
         gateway_ip: gateway.to_string(),
         server_ip: "10.0.0.8:8080",
         connect_status: "已连接",
-        power_status: "正常",
+        power_status,
     }
 }
 
@@ -163,21 +203,50 @@ struct MqttServerSetting {
 }
 
 fn set_mqtt_server(req: &HttpRequest<State>) -> Box<Future<Item = HttpResponse, Error = Error>> {
+    let mqtt_client = req.state().mqtt_client.clone();
     req.json()
         .from_err()
-        .and_then(|val: MqttServerSetting| {
-            println!("model: {:?}", val); // TODO:
-            Ok(HttpResponse::Ok().json(val)) // <- send response
+        .and_then(move |val: MqttServerSetting| {
+            let id = "spb-no-12563456";
+            match setup_client(val.ip.clone(), val.port, id) {
+                Ok((client, _notifacations)) => match mqtt_client.lock() {
+                    Ok(mut mqtt_c) => {
+                        *mqtt_c = Some(client);
+                        Ok(HttpResponse::Ok().json(val))
+                    }
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        Ok(HttpResponse::BadRequest().json(val))
+                    }
+                },
+                Err(e) => {
+                    eprintln!("{}", e);
+                    Ok(HttpResponse::BadRequest().json(val))
+                }
+            }
         })
         .responder()
 }
 
-pub fn run() {
+pub fn run(
+    swin: Arc<Mutex<SwIn>>,
+    swout: Arc<Mutex<SwOut>>,
+    ups: Arc<Mutex<Ups>>,
+    battery: Arc<Mutex<Battery>>,
+    dcout: Arc<Mutex<DcOut>>,
+    mqtt_client: Arc<Mutex<Option<MqttClient>>>,
+) {
     let handle = make_handle();
     let state = State {
         handle,
         ifname: String::from("eth0"),
         config_ip: Ipv4Addr::new(10, 0, 0, 14),
+        swin,
+        swout,
+        ups,
+        battery,
+        dcout,
+        mqtt_client,
     };
     server::new(move || {
         vec![
