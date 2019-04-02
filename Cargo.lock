@@ -1454,7 +1454,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "spb_web_server"
+name = "spb-web-server"
 version = "0.1.0"
 dependencies = [
  "actix-web 0.7.18 (registry+https://github.com/rust-lang/crates.io-index)",
