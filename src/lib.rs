@@ -4,9 +4,7 @@ use futures::future::Future;
 use ip_addr_op::*;
 use ipnetwork::*;
 use iproute::*;
-use rumqtt::MqttClient;
 use serde::{Deserialize, Serialize};
-use spb_data_service::setup_client;
 use spb_serial_data_parser::{Battery, DcOut, SwIn, SwOut, Ups};
 
 use std::net::Ipv4Addr;
@@ -24,7 +22,7 @@ struct Status {
     host_ip: String,
     host_mask: String,
     gateway_ip: String,
-    server_ip: &'static str,
+    server_ip: String,
     connect_status: &'static str,
     power_status: String,
 }
@@ -51,7 +49,8 @@ struct State {
     ups: Arc<Mutex<Ups>>,
     battery: Arc<Mutex<Battery>>,
     dcout: Arc<Mutex<DcOut>>,
-    mqtt_client: Arc<Mutex<Option<MqttClient>>>,
+    mqtt_broker: Arc<Mutex<String>>,
+    mqtt_broker_port: Arc<Mutex<u16>>,
 }
 
 impl Clone for State {
@@ -65,7 +64,8 @@ impl Clone for State {
             ups: self.ups.clone(),
             battery: self.battery.clone(),
             dcout: self.dcout.clone(),
-            mqtt_client: self.mqtt_client.clone(),
+            mqtt_broker: self.mqtt_broker.clone(),
+            mqtt_broker_port: self.mqtt_broker_port.clone(),
         }
     }
 }
@@ -92,6 +92,15 @@ fn get_status(req: &HttpRequest<State>) -> impl Responder {
         }
         Err(_) => (String::from(""), String::from("")),
     };
+    let broker = match req.state().mqtt_broker.lock() {
+        Ok(b) => format!("{}", *b),
+        Err(_) => "".to_string(),
+    };
+    let port = match req.state().mqtt_broker_port.lock() {
+        Ok(p) => format!("{}", *p),
+        Err(_) => "".to_string(),
+    };
+    let server_ip = format!("{}:{}", broker, port);
     let gateway = match get_default_routes() {
         Ok(ref routes) if routes.len() > 0 => routes[0].gateway().to_string(),
         _ => String::from(""),
@@ -122,7 +131,7 @@ fn get_status(req: &HttpRequest<State>) -> impl Responder {
         host_ip: ip_addr,
         host_mask: mask,
         gateway_ip: gateway.to_string(),
-        server_ip: "10.0.0.8:8080",
+        server_ip,
         connect_status: "已连接",
         power_status,
     }
@@ -203,28 +212,20 @@ struct MqttServerSetting {
 }
 
 fn set_mqtt_server(req: &HttpRequest<State>) -> Box<Future<Item = HttpResponse, Error = Error>> {
-    let mqtt_client = req.state().mqtt_client.clone();
+    let broker = req.state().mqtt_broker.clone();
+    let port = req.state().mqtt_broker_port.clone();
     req.json()
         .from_err()
-        .and_then(move |val: MqttServerSetting| {
-            let id = "spb-no-12563456";
-            match setup_client(val.ip.clone(), val.port, id) {
-                Ok((client, _notifacations)) => match mqtt_client.lock() {
-                    Ok(mut mqtt_c) => {
-                        *mqtt_c = Some(client);
-                        Ok(HttpResponse::Ok().json(val))
-                    }
-                    Err(e) => {
-                        eprintln!("{}", e);
-                        Ok(HttpResponse::BadRequest().json(val))
-                    }
-                },
-                Err(e) => {
-                    eprintln!("{}", e);
-                    Ok(HttpResponse::BadRequest().json(val))
+        .and_then(
+            move |val: MqttServerSetting| match (broker.lock(), port.lock()) {
+                (Ok(mut broker), Ok(mut port)) => {
+                    *broker = val.ip;
+                    *port = val.port;
+                    Ok(HttpResponse::Ok().json(""))
                 }
-            }
-        })
+                _ => Ok(HttpResponse::BadRequest().json(val)),
+            },
+        )
         .responder()
 }
 
@@ -234,19 +235,21 @@ pub fn run(
     ups: Arc<Mutex<Ups>>,
     battery: Arc<Mutex<Battery>>,
     dcout: Arc<Mutex<DcOut>>,
-    mqtt_client: Arc<Mutex<Option<MqttClient>>>,
+    mqtt_broker: Arc<Mutex<String>>,
+    mqtt_broker_port: Arc<Mutex<u16>>,
 ) {
     let handle = make_handle();
     let state = State {
         handle,
         ifname: String::from("eth0"),
-        config_ip: Ipv4Addr::new(10, 0, 0, 14),
+        config_ip: Ipv4Addr::new(10, 188, 188, 188),
         swin,
         swout,
         ups,
         battery,
         dcout,
-        mqtt_client,
+        mqtt_broker,
+        mqtt_broker_port,
     };
     server::new(move || {
         vec![

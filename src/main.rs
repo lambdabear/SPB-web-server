@@ -16,6 +16,9 @@ fn main() {
     // let (mut mqtt_client, _notifications) = setup_client_loop(broker, port, id);
     // mqtt_client.subscribe(topic, QoS::AtLeastOnce).unwrap();
 
+    let broker = Arc::new(Mutex::new("".to_string()));
+    let port = Arc::new(Mutex::new(1883));
+
     let mqtt_c: Arc<Mutex<Option<MqttClient>>> = Arc::new(Mutex::new(None));
     let c1 = mqtt_c.clone();
 
@@ -31,7 +34,7 @@ fn main() {
     let in1 = swin.clone();
 
     let h1 = thread::spawn(move || {
-        run(swin, swout, ups, bt, dc, mqtt_c);
+        run(swin, swout, ups, bt, dc, broker, port);
     });
 
     thread::spawn(move || loop {

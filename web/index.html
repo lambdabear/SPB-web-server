@@ -113,9 +113,9 @@
         <fieldset>
             <legend>服务器设置</legend>
             <div class="setting">
-                <label class="ipAddress">IP 地址:</label>
-                <input class="ipInput" type="text" name="serverIp" value="" size="14"
-                    pattern="((^|\.)((25[0-5])|(2[0-4]\d)|(1\d\d)|([1-9]?\d))){4}$">
+                <label class="ipAddress">网络地址:</label>
+                <input class="ipInput" type="text" name="serverIp" value="" size="14">
+                    <!-- pattern="((^|\.)((25[0-5])|(2[0-4]\d)|(1\d\d)|([1-9]?\d))){4}$" -->
                 :
                 <input class="port" type="number" min="0" max="65535" name="serverPort" value="">
             </div>
@@ -133,7 +133,7 @@
             <p class="status">本机IP地址:<span id="hostIp" class="status"></span></p>
             <p class="status">子网掩码:<span id="hostMask" class="status"></span></p>
             <p class="status">网关IP地址:<span id="gatewayIp" class="status"></span></p>
-            <p class="status">服务器IP地址:<span id="serverIp" class="status"></span></p>
+            <p class="status">服务器地址:<span id="serverIp" class="status"></span></p>
             <p class="status">服务器连接状态:<span id="connectStatus" class="status">未连接</span></p>
             <p class="status">电源状态:<span id="powerStatus" class="status">未知</span></p>
         </div>
