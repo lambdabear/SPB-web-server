@@ -74,21 +74,36 @@ fn get_status(req: &HttpRequest<State>) -> impl Responder {
     let (ip_addr, mask) = match get_ip_addrs(req.state().handle.clone(), req.state().ifname.clone())
     {
         Ok(addrs) => {
-            if addrs.len() > 0 {
-                let (addr, prefix) = addrs[addrs.len() - 1];
-                match Ipv4Network::new(addr, prefix) {
-                    Ok(a) => {
-                        let mask = a.mask();
-                        (addr.to_string(), mask.to_string())
-                    }
-                    Err(e) => {
-                        eprintln!("{}", e);
-                        (String::from(""), String::from(""))
-                    }
-                }
-            } else {
-                (String::from(""), String::from(""))
-            }
+            // if addrs.len() > 0 {
+            //     let (addr, prefix) = addrs[addrs.len() - 1];
+            //     match Ipv4Network::new(addr, prefix) {
+            //         Ok(a) => {
+            //             let mask = a.mask();
+            //             (addr.to_string(), mask.to_string())
+            //         }
+            //         Err(e) => {
+            //             eprintln!("{}", e);
+            //             (String::from(""), String::from(""))
+            //         }
+            //     }
+            // } else {
+            //     (String::from(""), String::from(""))
+            // }
+            addrs
+                .iter()
+                .map(|(addr, prefix)| match Ipv4Network::new(*addr, *prefix) {
+                    Ok(a) => (addr.to_string(), a.mask().to_string()),
+                    Err(_) => ("".to_string(), "".to_string()),
+                })
+                .fold(
+                    ("".to_string(), "".to_string()),
+                    |(addr_s, mask_s), (addr, mask)| {
+                        (
+                            format!("{}  {}", addr_s, addr),
+                            format!("{}  {}", mask_s, mask),
+                        )
+                    },
+                )
         }
         Err(_) => (String::from(""), String::from("")),
     };
@@ -97,7 +112,14 @@ fn get_status(req: &HttpRequest<State>) -> impl Responder {
         Err(_) => "".to_string(),
     };
     let port = match req.state().mqtt_broker_port.lock() {
-        Ok(p) => format!("{}", *p),
+        Ok(p) => format!(
+            "{}",
+            if *p == 0 {
+                "".to_string()
+            } else {
+                (*p).to_string()
+            }
+        ),
         Err(_) => "".to_string(),
     };
     let server_ip = format!("{}:{}", broker, port);
@@ -261,7 +283,7 @@ pub fn run(
             App::with_state(state.clone()).resource("/", |r| r.f(index)),
         ]
     })
-    .bind("0.0.0.0:80")
+    .bind("0.0.0.0:8080")
     .unwrap()
     .run()
 }
