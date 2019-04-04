@@ -16,3 +16,4 @@ spb-data-service = { path = "../spb-data-service" }
 ipnetwork = "0.14"
 rumqtt = "0.30"
 rand = "0.6"
+crossbeam-channel = "0.3"

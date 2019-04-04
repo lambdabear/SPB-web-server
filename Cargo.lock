@@ -1458,6 +1458,7 @@ name = "spb-web-server"
 version = "0.1.0"
 dependencies = [
  "actix-web 0.7.18 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crossbeam-channel 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "ip-addr-op 0.1.0",
  "ipnetwork 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)",

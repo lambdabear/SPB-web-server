@@ -1,15 +1,18 @@
 use actix_web::fs::NamedFile;
 use actix_web::*;
+use crossbeam_channel::Receiver;
 use futures::future::Future;
 use ip_addr_op::*;
 use ipnetwork::*;
 use iproute::*;
 use serde::{Deserialize, Serialize};
-use spb_serial_data_parser::{Battery, DcOut, SwIn, SwOut, Ups};
 
+use std::collections::VecDeque;
 use std::net::Ipv4Addr;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
 fn index(_req: &HttpRequest<State>) -> Result<NamedFile> {
     let path = Path::new("./index.html");
@@ -40,71 +43,34 @@ impl Responder for Status {
     }
 }
 
+#[derive(Clone)]
 struct State {
     handle: Handle,
     ifname: String,
     config_ip: Ipv4Addr,
-    swin: Arc<Mutex<SwIn>>,
-    swout: Arc<Mutex<SwOut>>,
-    ups: Arc<Mutex<Ups>>,
-    battery: Arc<Mutex<Battery>>,
-    dcout: Arc<Mutex<DcOut>>,
+    status_buffer: Arc<Mutex<VecDeque<String>>>,
     mqtt_broker: Arc<Mutex<String>>,
     mqtt_broker_port: Arc<Mutex<u16>>,
-}
-
-impl Clone for State {
-    fn clone(&self) -> Self {
-        State {
-            ifname: self.ifname.clone(),
-            handle: self.handle.clone(),
-            config_ip: self.config_ip.clone(),
-            swin: self.swin.clone(),
-            swout: self.swout.clone(),
-            ups: self.ups.clone(),
-            battery: self.battery.clone(),
-            dcout: self.dcout.clone(),
-            mqtt_broker: self.mqtt_broker.clone(),
-            mqtt_broker_port: self.mqtt_broker_port.clone(),
-        }
-    }
 }
 
 fn get_status(req: &HttpRequest<State>) -> impl Responder {
     let (ip_addr, mask) = match get_ip_addrs(req.state().handle.clone(), req.state().ifname.clone())
     {
-        Ok(addrs) => {
-            // if addrs.len() > 0 {
-            //     let (addr, prefix) = addrs[addrs.len() - 1];
-            //     match Ipv4Network::new(addr, prefix) {
-            //         Ok(a) => {
-            //             let mask = a.mask();
-            //             (addr.to_string(), mask.to_string())
-            //         }
-            //         Err(e) => {
-            //             eprintln!("{}", e);
-            //             (String::from(""), String::from(""))
-            //         }
-            //     }
-            // } else {
-            //     (String::from(""), String::from(""))
-            // }
-            addrs
-                .iter()
-                .map(|(addr, prefix)| match Ipv4Network::new(*addr, *prefix) {
-                    Ok(a) => (addr.to_string(), a.mask().to_string()),
-                    Err(_) => ("".to_string(), "".to_string()),
-                })
-                .fold(
-                    ("".to_string(), "".to_string()),
-                    |(addr_s, mask_s), (addr, mask)| {
-                        (
-                            format!("{}  {}", addr_s, addr),
-                            format!("{}  {}", mask_s, mask),
-                        )
-                    },
-                )
-        }
+        Ok(addrs) => addrs
+            .iter()
+            .map(|(addr, prefix)| match Ipv4Network::new(*addr, *prefix) {
+                Ok(a) => (addr.to_string(), a.mask().to_string()),
+                Err(_) => ("".to_string(), "".to_string()),
+            })
+            .fold(
+                ("".to_string(), "".to_string()),
+                |(addr_s, mask_s), (addr, mask)| {
+                    (
+                        format!("{}  {}", addr_s, addr),
+                        format!("{}  {}", mask_s, mask),
+                    )
+                },
+            ),
         Err(_) => (String::from(""), String::from("")),
     };
     let broker = match req.state().mqtt_broker.lock() {
@@ -127,27 +93,12 @@ fn get_status(req: &HttpRequest<State>) -> impl Responder {
         Ok(ref routes) if routes.len() > 0 => routes[0].gateway().to_string(),
         _ => String::from(""),
     };
-    let swin = match req.state().swin.lock() {
-        Ok(swin) => format!("{:?}", *swin),
-        Err(_) => String::from(""),
+    let power_status = match req.state().status_buffer.lock() {
+        Ok(buffer) => buffer
+            .iter()
+            .fold("".to_string(), |acc, s| format!("{}____{}____", acc, s)),
+        Err(_) => "".to_string(),
     };
-    let swout = match req.state().swout.lock() {
-        Ok(swout) => format!("{:?}", *swout),
-        Err(_) => String::from(""),
-    };
-    let ups = match req.state().ups.lock() {
-        Ok(ups) => format!("{:?}", *ups),
-        Err(_) => String::from(""),
-    };
-    let battery = match req.state().battery.lock() {
-        Ok(battery) => format!("{:?}", *battery),
-        Err(_) => String::from(""),
-    };
-    let dcout = match req.state().dcout.lock() {
-        Ok(dcout) => format!("{:?}", *dcout),
-        Err(_) => String::from(""),
-    };
-    let power_status = format!("{}\n{}\n{}\n{}\n{}", swin, swout, ups, battery, dcout);
     Status {
         host_name: "***分行人民街分理处",
         host_ip: ip_addr,
@@ -252,27 +203,44 @@ fn set_mqtt_server(req: &HttpRequest<State>) -> Box<Future<Item = HttpResponse, 
 }
 
 pub fn run(
-    swin: Arc<Mutex<SwIn>>,
-    swout: Arc<Mutex<SwOut>>,
-    ups: Arc<Mutex<Ups>>,
-    battery: Arc<Mutex<Battery>>,
-    dcout: Arc<Mutex<DcOut>>,
     mqtt_broker: Arc<Mutex<String>>,
     mqtt_broker_port: Arc<Mutex<u16>>,
+    r: Receiver<Vec<u8>>,
 ) {
     let handle = make_handle();
+    let status_buffer = Arc::new(Mutex::new(VecDeque::with_capacity(5)));
+    let status_b = status_buffer.clone();
     let state = State {
         handle,
         ifname: String::from("eth0"),
         config_ip: Ipv4Addr::new(10, 188, 188, 188),
-        swin,
-        swout,
-        ups,
-        battery,
-        dcout,
+        status_buffer,
         mqtt_broker,
         mqtt_broker_port,
     };
+
+    // save receive message to status buffer every 100ms
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_millis(100));
+        match r.recv() {
+            Ok(msg) => match String::from_utf8(msg) {
+                Ok(s) => match status_b.lock() {
+                    Ok(mut status) => {
+                        if (*status).len() < 5 {
+                            (*status).push_back(s)
+                        } else {
+                            (*status).pop_front();
+                            (*status).push_back(s);
+                        }
+                    }
+                    Err(e) => eprintln!("{}", e),
+                },
+                Err(e) => eprintln!("{}", e),
+            },
+            Err(e) => eprintln!("{}", e),
+        }
+    });
+
     server::new(move || {
         vec![
             App::with_state(state.clone())
