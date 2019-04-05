@@ -1,6 +1,6 @@
 use actix_web::fs::NamedFile;
 use actix_web::*;
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{Receiver, Sender};
 use futures::future::Future;
 use ip_addr_op::*;
 use ipnetwork::*;
@@ -25,8 +25,7 @@ struct Status {
     host_ip: String,
     host_mask: String,
     gateway_ip: String,
-    server_ip: String,
-    connect_status: &'static str,
+    broker: String,
     power_status: String,
 }
 
@@ -49,8 +48,8 @@ struct State {
     ifname: String,
     config_ip: Ipv4Addr,
     status_buffer: Arc<Mutex<VecDeque<String>>>,
-    mqtt_broker: Arc<Mutex<String>>,
-    mqtt_broker_port: Arc<Mutex<u16>>,
+    broker: Arc<Mutex<Broker>>,
+    broker_set_s: Sender<Broker>,
 }
 
 fn get_status(req: &HttpRequest<State>) -> impl Responder {
@@ -73,30 +72,21 @@ fn get_status(req: &HttpRequest<State>) -> impl Responder {
             ),
         Err(_) => (String::from(""), String::from("")),
     };
-    let broker = match req.state().mqtt_broker.lock() {
-        Ok(b) => format!("{}", *b),
+    let broker = match req.state().broker.lock() {
+        Ok(b) => match ((*b).url.clone(), (*b).port) {
+            (s, 0) => s,
+            (s, p) => format!("{} : {}", s, p),
+        },
         Err(_) => "".to_string(),
     };
-    let port = match req.state().mqtt_broker_port.lock() {
-        Ok(p) => format!(
-            "{}",
-            if *p == 0 {
-                "".to_string()
-            } else {
-                (*p).to_string()
-            }
-        ),
-        Err(_) => "".to_string(),
-    };
-    let server_ip = format!("{}:{}", broker, port);
     let gateway = match get_default_routes() {
         Ok(ref routes) if routes.len() > 0 => routes[0].gateway().to_string(),
         _ => String::from(""),
     };
     let power_status = match req.state().status_buffer.lock() {
-        Ok(buffer) => buffer
-            .iter()
-            .fold("".to_string(), |acc, s| format!("{}____{}____", acc, s)),
+        Ok(buffer) => buffer.iter().fold("".to_string(), |acc, s| {
+            format!("{} {}", acc, format!("[{}]", s))
+        }),
         Err(_) => "".to_string(),
     };
     Status {
@@ -104,8 +94,7 @@ fn get_status(req: &HttpRequest<State>) -> impl Responder {
         host_ip: ip_addr,
         host_mask: mask,
         gateway_ip: gateway.to_string(),
-        server_ip,
-        connect_status: "已连接",
+        broker,
         power_status,
     }
 }
@@ -116,6 +105,18 @@ struct HostSetting {
     ip: String,
     mask: String,
     gateway: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Broker {
+    pub url: String,
+    pub port: u16,
+}
+
+impl Broker {
+    pub fn new(url: String, port: u16) -> Broker {
+        Broker { url, port }
+    }
 }
 
 fn set_host(req: &HttpRequest<State>) -> Box<Future<Item = HttpResponse, Error = Error>> {
@@ -185,38 +186,34 @@ struct MqttServerSetting {
 }
 
 fn set_mqtt_server(req: &HttpRequest<State>) -> Box<Future<Item = HttpResponse, Error = Error>> {
-    let broker = req.state().mqtt_broker.clone();
-    let port = req.state().mqtt_broker_port.clone();
+    let broker_set_s = req.state().broker_set_s.clone();
     req.json()
         .from_err()
-        .and_then(
-            move |val: MqttServerSetting| match (broker.lock(), port.lock()) {
-                (Ok(mut broker), Ok(mut port)) => {
-                    *broker = val.ip;
-                    *port = val.port;
-                    Ok(HttpResponse::Ok().json(""))
+        .and_then(move |val: MqttServerSetting| {
+            match broker_set_s.send(Broker::new(val.ip, val.port)) {
+                Ok(()) => Ok(HttpResponse::Ok().json("")),
+                Err(e) => {
+                    eprintln!("{}", e);
+                    Ok(HttpResponse::BadRequest().json(""))
                 }
-                _ => Ok(HttpResponse::BadRequest().json(val)),
-            },
-        )
+            }
+        })
         .responder()
 }
 
-pub fn run(
-    mqtt_broker: Arc<Mutex<String>>,
-    mqtt_broker_port: Arc<Mutex<u16>>,
-    r: Receiver<Vec<u8>>,
-) {
+pub fn run(r: Receiver<Vec<u8>>, broker_r: Receiver<Broker>, broker_set_s: Sender<Broker>) {
     let handle = make_handle();
     let status_buffer = Arc::new(Mutex::new(VecDeque::with_capacity(5)));
     let status_b = status_buffer.clone();
+    let broker = Arc::new(Mutex::new(Broker::new("".to_string(), 0)));
+    let broker1 = broker.clone();
     let state = State {
         handle,
         ifname: String::from("eth0"),
         config_ip: Ipv4Addr::new(10, 188, 188, 188),
         status_buffer,
-        mqtt_broker,
-        mqtt_broker_port,
+        broker,
+        broker_set_s,
     };
 
     // save receive message to status buffer every 100ms
@@ -235,6 +232,18 @@ pub fn run(
                     }
                     Err(e) => eprintln!("{}", e),
                 },
+                Err(e) => eprintln!("{}", e),
+            },
+            Err(e) => eprintln!("{}", e),
+        }
+    });
+
+    // get updated broker message every 1 second
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(1));
+        match broker_r.recv() {
+            Ok(broker) => match broker1.lock() {
+                Ok(mut b) => *b = broker,
                 Err(e) => eprintln!("{}", e),
             },
             Err(e) => eprintln!("{}", e),
