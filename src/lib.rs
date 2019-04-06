@@ -5,6 +5,7 @@ use futures::future::Future;
 use ip_addr_op::*;
 use ipnetwork::*;
 use iproute::*;
+use publicsuffix::Domain;
 use serde::{Deserialize, Serialize};
 
 use std::collections::VecDeque;
@@ -73,7 +74,7 @@ fn get_status(req: &HttpRequest<State>) -> impl Responder {
         Err(_) => (String::from(""), String::from("")),
     };
     let broker = match req.state().broker.lock() {
-        Ok(b) => match ((*b).url.clone(), (*b).port) {
+        Ok(b) => match ((*b).host.clone(), (*b).port) {
             (s, 0) => s,
             (s, p) => format!("{} : {}", s, p),
         },
@@ -109,13 +110,18 @@ struct HostSetting {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Broker {
-    pub url: String,
+    pub host: String,
     pub port: u16,
 }
 
 impl Broker {
-    pub fn new(url: String, port: u16) -> Broker {
-        Broker { url, port }
+    pub fn new(host: String, port: u16) -> Result<Broker, String> {
+        if Domain::has_valid_syntax(&host) {
+            Ok(Broker { host, port })
+        } else {
+            println!("broker domain invalid");
+            Err("host parse error".to_string())
+        }
     }
 }
 
@@ -181,7 +187,7 @@ fn set_host(req: &HttpRequest<State>) -> Box<Future<Item = HttpResponse, Error =
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MqttServerSetting {
-    ip: String,
+    host: String,
     port: u16,
 }
 
@@ -189,15 +195,18 @@ fn set_mqtt_server(req: &HttpRequest<State>) -> Box<Future<Item = HttpResponse, 
     let broker_set_s = req.state().broker_set_s.clone();
     req.json()
         .from_err()
-        .and_then(move |val: MqttServerSetting| {
-            match broker_set_s.send(Broker::new(val.ip, val.port)) {
-                Ok(()) => Ok(HttpResponse::Ok().json("")),
-                Err(e) => {
-                    eprintln!("{}", e);
-                    Ok(HttpResponse::BadRequest().json(""))
-                }
-            }
-        })
+        .and_then(
+            move |val: MqttServerSetting| match Broker::new(val.host, val.port) {
+                Ok(broker) => match broker_set_s.send(broker) {
+                    Ok(()) => Ok(HttpResponse::Ok().json("")),
+                    Err(e) => {
+                        println!("{:?}", e);
+                        Ok(HttpResponse::BadRequest().json("message sending error"))
+                    }
+                },
+                Err(e) => Ok(HttpResponse::BadRequest().json(e)),
+            },
+        )
         .responder()
 }
 
@@ -205,7 +214,8 @@ pub fn run(r: Receiver<Vec<u8>>, broker_r: Receiver<Broker>, broker_set_s: Sende
     let handle = make_handle();
     let status_buffer = Arc::new(Mutex::new(VecDeque::with_capacity(5)));
     let status_b = status_buffer.clone();
-    let broker = Arc::new(Mutex::new(Broker::new("".to_string(), 0)));
+    let init_broker = Broker::new("localhost".to_string(), 1883).expect("init_broker invalid");
+    let broker = Arc::new(Mutex::new(init_broker));
     let broker1 = broker.clone();
     let state = State {
         handle,

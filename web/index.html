@@ -114,10 +114,10 @@
             <legend>服务器设置</legend>
             <div class="setting">
                 <label class="ipAddress">网络地址:</label>
-                <input class="ipInput" type="text" name="serverIp" value="" size="14">
+                <input class="ipInput" type="text" name="host" value="" size="14">
                     <!-- pattern="((^|\.)((25[0-5])|(2[0-4]\d)|(1\d\d)|([1-9]?\d))){4}$" -->
                 :
-                <input class="port" type="number" min="0" max="65535" name="serverPort" value="">
+                <input class="port" type="number" min="0" max="65535" name="port" value="">
             </div>
             <div class="submit">
                 <input type="submit" value="保存">
@@ -133,7 +133,7 @@
             <p class="status">本机IP地址:<span id="hostIp" class="status"></span></p>
             <p class="status">子网掩码:<span id="hostMask" class="status"></span></p>
             <p class="status">网关IP地址:<span id="gatewayIp" class="status"></span></p>
-            <p class="status">服务器地址:<span id="serverIp" class="status"></span></p>
+            <p class="status">服务器地址:<span id="broker" class="status"></span></p>
             <p class="status">电源状态:<span id="powerStatus" class="status">未知</span></p>
         </div>
     </fieldset>
@@ -168,8 +168,8 @@
 
                 var formData = new FormData(event.target);
                 var data = {
-                    ip: formData.get('serverIp'),
-                    port: parseInt(formData.get('serverPort')),
+                    host: formData.get('host'),
+                    port: parseInt(formData.get('port')),
                 }
                 xhr.send(JSON.stringify(data));
 
@@ -221,7 +221,7 @@
                         document.getElementById('hostIp').innerHTML = response.host_ip;
                         document.getElementById('hostMask').innerHTML = response.host_mask;
                         document.getElementById('gatewayIp').innerHTML = response.gateway_ip;
-                        document.getElementById('serverIp').innerHTML = response.broker;
+                        document.getElementById('broker').innerHTML = response.broker;
                         document.getElementById('powerStatus').innerHTML = response.power_status;
                     } else {
                         // console.log(requestStatus);
