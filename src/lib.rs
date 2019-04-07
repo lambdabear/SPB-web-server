@@ -116,7 +116,7 @@ pub struct Broker {
 
 impl Broker {
     pub fn new(host: String, port: u16) -> Result<Broker, String> {
-        if Domain::has_valid_syntax(&host) {
+        if Domain::has_valid_syntax(&host) || (&host).parse::<Ipv4Addr>().is_ok() {
             Ok(Broker { host, port })
         } else {
             println!("broker domain invalid");
