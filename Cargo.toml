@@ -18,3 +18,5 @@ rumqtt = "0.30"
 rand = "0.6"
 crossbeam-channel = "0.3"
 publicsuffix = { version = "1.5", default-features = false }
+
+spb-config = { path = "../spb-config"}

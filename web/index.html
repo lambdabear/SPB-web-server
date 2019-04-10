@@ -81,13 +81,9 @@
 
     <h2>智能电源管理控制器</h2>
 
-    <form id="hostSetting">
+    <form id="networkSetting">
         <fieldset>
-            <legend>本机设置</legend>
-            <div class="setting">
-                <label>设备名称:</label>
-                <input type="text" name="hostName" value="" size="23">
-            </div>
+            <legend>网络设置</legend>
             <div class="setting">
                 <label class="ipAddress">IP 地址:</label>
                 <input class="ipInput" type="text" name="hostIp" value="" size="14"
@@ -122,7 +118,19 @@
             <div class="submit">
                 <input type="submit" value="保存">
             </div>
-
+        </fieldset>
+    </form>
+    </br>
+    <form id="nameSetting">
+        <fieldset>
+            <legend>设备设置</legend>
+            <div class="setting">
+                <label>设备名称:</label>
+                <input type="text" name="hostName" value="" size="23">
+            </div>
+            <div class="submit">
+                <input type="submit" value="保存">
+            </div>
         </fieldset>
     </form>
     </br>
@@ -177,21 +185,39 @@
             });
         })();
 
-        // add hostSetting form submit listener
+        // add networkSetting form submit listener
         (function () {
-            document.getElementById("hostSetting").addEventListener("submit", function(event) {
+            document.getElementById("networkSetting").addEventListener("submit", function(event) {
                 event.preventDefault();
 
                 var xhr = new XMLHttpRequest();
-                xhr.open('POST', 'api/setHost', true);
+                xhr.open('POST', 'api/setNet', true);
+                xhr.setRequestHeader("Content-Type", "application/json");
+
+                var formData = new FormData(event.target);
+                var data = {
+                    ip: formData.get('hostIp'),
+                    mask: formData.get('hostMask'),
+                    gateway: formData.get('gatewayIp'),
+                }
+                xhr.send(JSON.stringify(data));
+
+                event.target.reset();
+            });
+        })();
+
+        // add nameSetting form submit listener
+        (function () {
+            document.getElementById("nameSetting").addEventListener("submit", function(event) {
+                event.preventDefault();
+
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', 'api/setName', true);
                 xhr.setRequestHeader("Content-Type", "application/json");
 
                 var formData = new FormData(event.target);
                 var data = {
                     name: formData.get('hostName'),
-                    ip: formData.get('hostIp'),
-                    mask: formData.get('hostMask'),
-                    gateway: formData.get('gatewayIp'),
                 }
                 xhr.send(JSON.stringify(data));
 
