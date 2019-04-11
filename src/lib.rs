@@ -277,12 +277,15 @@ fn set_name(req: &HttpRequest<State>) -> Box<Future<Item = HttpResponse, Error =
 }
 
 pub fn run(
+    config_path: String,
+    config_ip: Ipv4Addr,
+    ifname: String,
     r: Receiver<Vec<u8>>,
     broker_r: Receiver<Broker>,
     broker_set_s: Sender<Broker>,
     save_s: Sender<SaveMsg>,
 ) {
-    let config_path = "./config.json".to_string();
+    // let config_path = "./config.json".to_string();
     let config = match read_config(&config_path) {
         Ok(conf) => conf,
         Err(e) => {
@@ -291,7 +294,7 @@ pub fn run(
         }
     };
     let device_name = Arc::new(Mutex::new(config.device_name));
-    let handle = make_handle();
+    let handle = make_handle().unwrap(); //TODO: change panic
     let status_buffer = Arc::new(Mutex::new(VecDeque::with_capacity(5)));
     let status_b = status_buffer.clone();
     let init_broker =
@@ -303,8 +306,8 @@ pub fn run(
         config_path,
         device_name: device_name.clone(),
         handle,
-        ifname: String::from("eth0"),
-        config_ip: Ipv4Addr::new(10, 188, 188, 188),
+        ifname,
+        config_ip,
         status_buffer,
         broker,
         broker_set_s,
@@ -337,7 +340,7 @@ pub fn run(
                 Ok(mut dev_name) => *dev_name = name,
                 Err(e) => eprintln!("{}", e),
             },
-            Err(e) => eprintln!("{}", e),
+            Err(_) => (),
         }
     });
 
