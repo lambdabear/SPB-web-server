@@ -80,6 +80,7 @@ struct State {
     broker: Arc<Mutex<Broker>>,
     broker_set_s: Sender<Broker>,
     save_s: Sender<SaveMsg>,
+    change_ip_notify_s: Sender<SaveMsg>,
     device_name_s: Sender<String>,
 }
 
@@ -172,6 +173,7 @@ fn set_net(req: &HttpRequest<State>) -> Box<Future<Item = HttpResponse, Error = 
     let ifname = req.state().ifname.clone();
     let config_ip = req.state().config_ip.clone();
     let save_s = req.state().save_s.clone();
+    let change_ip_notify_s = req.state().change_ip_notify_s.clone();
     req.json()
         .from_err()
         .and_then(move |val: NetworkSetting| {
@@ -196,6 +198,15 @@ fn set_net(req: &HttpRequest<State>) -> Box<Future<Item = HttpResponse, Error = 
                                 return Ok(HttpResponse::BadRequest().json(val));
                             }
                         };
+
+                        // send changing ip address signal to the mqtt client thread
+                        match change_ip_notify_s
+                            .send(SaveMsg::Net(NetSetting::new(new_ip, prefix, gateway)))
+                        {
+                            Ok(()) => thread::sleep(Duration::from_millis(1000)),
+                            Err(e) => eprintln!("{}", e),
+                        }
+
                         // set host ip address and mask
                         match set_ip_addr(handle, ifname.clone(), config_ip, new_ip, prefix) {
                             Ok(_) => {
@@ -284,6 +295,7 @@ pub fn run(
     broker_r: Receiver<Broker>,
     broker_set_s: Sender<Broker>,
     save_s: Sender<SaveMsg>,
+    change_ip_notify_s: Sender<SaveMsg>,
 ) {
     // let config_path = "./config.json".to_string();
     let config = match read_config(&config_path) {
@@ -294,7 +306,7 @@ pub fn run(
         }
     };
     let device_name = Arc::new(Mutex::new(config.device_name));
-    let handle = make_handle().unwrap(); //TODO: change panic
+    let handle = make_handle().unwrap(); //TODO: can be panic
     let status_buffer = Arc::new(Mutex::new(VecDeque::with_capacity(5)));
     let status_b = status_buffer.clone();
     let init_broker =
@@ -312,6 +324,7 @@ pub fn run(
         broker,
         broker_set_s,
         save_s,
+        change_ip_notify_s,
         device_name_s,
     };
 
