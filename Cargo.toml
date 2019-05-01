@@ -5,7 +5,8 @@ authors = ["ethanzhang"]
 edition = "2018"
 
 [dependencies]
-actix-web = "0.7"
+actix-web = "1.0.0-beta.2"
+actix-files = "0.1.0-beta.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 futures = "0.1"
@@ -14,7 +15,7 @@ iproute = { path = "../iproute" }
 spb-serial-data-parser = { path = "../spb-serial-data-parser"}
 spb-data-service = { path = "../spb-data-service" }
 ipnetwork = "0.14"
-rumqtt = "0.30"
+rumqtt = { path = "../rumqtt" }
 rand = "0.6"
 crossbeam-channel = "0.3"
 publicsuffix = { version = "1.5", default-features = false }
