@@ -5,16 +5,14 @@ authors = ["ethanzhang"]
 edition = "2018"
 
 [dependencies]
-actix-web = "0.7"
+actix-web = "1.0"
+actix-files = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 futures = "0.1"
 ip-addr-op = { git = "https://github.com/lambdabear/ip-addr-op.git" }
 iproute = { git = "https://github.com/lambdabear/iproute.git" }
-spb-serial-data-parser = { git = "https://github.com/lambdabear/SPB-serial-data-parser.git" }
-spb-data-service = { git = "https://github.com/lambdabear/SPB-data-service.git" }
 ipnetwork = "0.14"
-rumqtt = "0.31"
 rand = "0.6"
 crossbeam-channel = "0.3"
 publicsuffix = { version = "1.5", default-features = false }

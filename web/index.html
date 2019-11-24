@@ -111,7 +111,7 @@
             <div class="setting">
                 <label class="ipAddress">网络地址:</label>
                 <input class="ipInput" type="text" name="host" value="" size="14">
-                    <!-- pattern="((^|\.)((25[0-5])|(2[0-4]\d)|(1\d\d)|([1-9]?\d))){4}$" -->
+                <!-- pattern="((^|\.)((25[0-5])|(2[0-4]\d)|(1\d\d)|([1-9]?\d))){4}$" -->
                 :
                 <input class="port" type="number" min="0" max="65535" name="port" value="">
             </div>
@@ -167,7 +167,7 @@
 
         // add mqttServerSetting form submit listener
         (function () {
-            document.getElementById("mqttServerSetting").addEventListener("submit", function(event) {
+            document.getElementById("mqttServerSetting").addEventListener("submit", function (event) {
                 event.preventDefault();
 
                 var xhr = new XMLHttpRequest();
@@ -187,7 +187,7 @@
 
         // add networkSetting form submit listener
         (function () {
-            document.getElementById("networkSetting").addEventListener("submit", function(event) {
+            document.getElementById("networkSetting").addEventListener("submit", function (event) {
                 event.preventDefault();
 
                 var xhr = new XMLHttpRequest();
@@ -208,7 +208,7 @@
 
         // add nameSetting form submit listener
         (function () {
-            document.getElementById("nameSetting").addEventListener("submit", function(event) {
+            document.getElementById("nameSetting").addEventListener("submit", function (event) {
                 event.preventDefault();
 
                 var xhr = new XMLHttpRequest();
@@ -263,7 +263,7 @@
         }
 
         makeRequest();
-        setInterval(makeRequest, 2000)
+        setInterval(makeRequest, 1000)
     })();
 </script>
 

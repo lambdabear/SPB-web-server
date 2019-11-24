@@ -1,7 +1,6 @@
-use actix_web::fs::NamedFile;
+use actix_files::NamedFile;
 use actix_web::*;
 use crossbeam_channel::{bounded, Receiver, Sender};
-use futures::future::Future;
 use ip_addr_op::*;
 use ipnetwork::*;
 use iproute::*;
@@ -17,7 +16,7 @@ use std::time::Duration;
 
 use spb_config::*;
 
-fn index(_req: &HttpRequest<State>) -> Result<NamedFile> {
+fn index(_req: HttpRequest) -> Result<NamedFile> {
     let path = Path::new("./index.html");
     Ok(NamedFile::open(path)?)
 }
@@ -30,19 +29,6 @@ struct Status {
     gateway_ip: String,
     broker: String,
     power_status: String,
-}
-
-impl Responder for Status {
-    type Item = HttpResponse;
-    type Error = Error;
-
-    fn respond_to<S>(self, _req: &HttpRequest<S>) -> Result<HttpResponse, Error> {
-        let body = serde_json::to_string(&self)?;
-
-        Ok(HttpResponse::Ok()
-            .content_type("application/json")
-            .body(body))
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -84,12 +70,11 @@ struct State {
     device_name_s: Sender<String>,
 }
 
-fn get_status(req: &HttpRequest<State>) -> impl Responder {
-    let (ip_addr, mask) = match get_ip_addrs(req.state().handle.clone(), req.state().ifname.clone())
-    {
+fn get_status(state: web::Data<State>) -> Result<HttpResponse> {
+    let (ip_addr, mask) = match get_ip_addrs(state.handle.clone(), state.ifname.clone()) {
         Ok(addrs) => addrs
             .iter()
-            .filter(|(addr, _)| *addr != req.state().config_ip)
+            .filter(|(addr, _)| *addr != state.config_ip)
             .map(|(addr, prefix)| match Ipv4Network::new(*addr, *prefix) {
                 Ok(a) => (addr.to_string(), a.mask().to_string()),
                 Err(_) => ("".to_string(), "".to_string()),
@@ -105,7 +90,7 @@ fn get_status(req: &HttpRequest<State>) -> impl Responder {
             ),
         Err(_) => (String::from(""), String::from("")),
     };
-    let broker = match req.state().broker.lock() {
+    let broker = match state.broker.lock() {
         Ok(b) => match ((*b).host.clone(), (*b).port) {
             (s, 0) => s,
             (s, p) => format!("{} : {}", s, p),
@@ -116,27 +101,27 @@ fn get_status(req: &HttpRequest<State>) -> impl Responder {
         Ok(ref routes) if routes.len() > 0 => routes[0].gateway().to_string(),
         _ => String::from(""),
     };
-    let power_status = match req.state().status_buffer.lock() {
+    let power_status = match state.status_buffer.lock() {
         Ok(buffer) => buffer.iter().fold("".to_string(), |acc, s| {
             format!("{} {}", acc, format!("[{}]", s))
         }),
         Err(_) => "".to_string(),
     };
-    let host_name = match req.state().device_name.lock() {
+    let host_name = match state.device_name.lock() {
         Ok(name) => name.clone(),
         Err(e) => {
             eprintln!("{}", e);
             "".to_string()
         }
     };
-    Status {
+    Ok(HttpResponse::Ok().json(Status {
         host_name,
         host_ip: ip_addr,
         host_mask: mask,
         gateway_ip: gateway.to_string(),
         broker,
         power_status,
-    }
+    }))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -168,123 +153,116 @@ impl Broker {
     }
 }
 
-fn set_net(req: &HttpRequest<State>) -> Box<Future<Item = HttpResponse, Error = Error>> {
-    let handle = req.state().handle.clone();
-    let ifname = req.state().ifname.clone();
-    let config_ip = req.state().config_ip.clone();
-    let save_s = req.state().save_s.clone();
-    let change_ip_notify_s = req.state().change_ip_notify_s.clone();
-    req.json()
-        .from_err()
-        .and_then(move |val: NetworkSetting| {
-            let mask = &val.mask;
-            match mask.parse() {
-                Ok(mask) => match (
-                    ipv4_mask_to_prefix(mask),
-                    (&val.ip).parse(),
-                    (&val.gateway).parse(),
-                ) {
-                    (Ok(prefix), Ok(new_ip), Ok(gateway)) => {
-                        // check if gateway is in this ip network
-                        match Ipv4Network::new(new_ip, prefix) {
-                            Ok(network) => {
-                                if !network.contains(gateway) {
-                                    eprintln!("gateway is not in this ip network");
-                                    return Ok(HttpResponse::BadRequest().json(val));
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("{}", e);
-                                return Ok(HttpResponse::BadRequest().json(val));
-                            }
-                        };
+fn set_net(
+    network_setting: web::Json<NetworkSetting>,
+    state: web::Data<State>,
+) -> Result<HttpResponse> {
+    let handle = state.handle.clone();
+    let ifname = state.ifname.clone();
+    let config_ip = state.config_ip.clone();
+    let save_s = state.save_s.clone();
+    let change_ip_notify_s = state.change_ip_notify_s.clone();
 
-                        // send changing ip address signal to the mqtt client thread
-                        match change_ip_notify_s
-                            .send(SaveMsg::Net(NetSetting::new(new_ip, prefix, gateway)))
-                        {
-                            Ok(()) => thread::sleep(Duration::from_millis(1000)),
-                            Err(e) => eprintln!("{}", e),
+    match network_setting.mask.parse() {
+        Ok(mask) => match (
+            ipv4_mask_to_prefix(mask),
+            (network_setting.ip).parse(),
+            (network_setting.gateway).parse(),
+        ) {
+            (Ok(prefix), Ok(new_ip), Ok(gateway)) => {
+                // check if gateway is in this ip network
+                match Ipv4Network::new(new_ip, prefix) {
+                    Ok(network) => {
+                        if !network.contains(gateway) {
+                            eprintln!("gateway is not in this ip network");
+                            return Ok(
+                                HttpResponse::BadRequest().json(network_setting.into_inner())
+                            );
                         }
+                    }
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        return Ok(HttpResponse::BadRequest().json(network_setting.into_inner()));
+                    }
+                };
 
-                        // set host ip address and mask
-                        match set_ip_addr(handle, ifname.clone(), config_ip, new_ip, prefix) {
+                // send changing ip address signal to the mqtt client thread
+                match change_ip_notify_s
+                    .send(SaveMsg::Net(NetSetting::new(new_ip, prefix, gateway)))
+                {
+                    Ok(()) => thread::sleep(Duration::from_millis(1000)),
+                    Err(e) => eprintln!("{}", e),
+                }
+
+                // set host ip address and mask
+                match set_ip_addr(handle, ifname.clone(), config_ip, new_ip, prefix) {
+                    Ok(_) => {
+                        // update new gateway
+                        match update_default_route(ifname, gateway) {
                             Ok(_) => {
-                                // update new gateway
-                                match update_default_route(ifname, gateway) {
-                                    Ok(_) => {
-                                        // send saving to config file message
-                                        match save_s.send(SaveMsg::Net(NetSetting::new(
-                                            new_ip, prefix, gateway,
-                                        ))) {
-                                            Ok(()) => (),
-                                            Err(e) => eprintln!("{}", e),
-                                        };
-                                        Ok(HttpResponse::Ok().json(val))
-                                    }
-                                    Err(e) => {
-                                        eprintln!("{}", e);
-                                        Ok(HttpResponse::BadRequest().json(val))
-                                    }
-                                }
+                                // send saving to config file message
+                                match save_s
+                                    .send(SaveMsg::Net(NetSetting::new(new_ip, prefix, gateway)))
+                                {
+                                    Ok(()) => (),
+                                    Err(e) => eprintln!("{}", e),
+                                };
+                                Ok(HttpResponse::Ok().json(network_setting.into_inner()))
                             }
                             Err(e) => {
                                 eprintln!("{}", e);
-                                Ok(HttpResponse::BadRequest().json(val))
+                                Ok(HttpResponse::BadRequest().json(network_setting.into_inner()))
                             }
                         }
                     }
-                    _ => {
-                        eprintln!("set host ip address and gateway failed");
-                        Ok(HttpResponse::BadRequest().json(val))
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        Ok(HttpResponse::BadRequest().json(network_setting.into_inner()))
                     }
-                },
-                Err(e) => {
-                    eprintln!("{}", e);
-                    Ok(HttpResponse::BadRequest().json(val))
                 }
             }
-        })
-        .responder()
+            _ => {
+                eprintln!("set host ip address and gateway failed");
+                Ok(HttpResponse::BadRequest().json(network_setting.into_inner()))
+            }
+        },
+        Err(e) => {
+            eprintln!("{}", e);
+            Ok(HttpResponse::BadRequest().json(network_setting.into_inner()))
+        }
+    }
 }
 
-fn set_mqtt_server(req: &HttpRequest<State>) -> Box<Future<Item = HttpResponse, Error = Error>> {
-    let broker_set_s = req.state().broker_set_s.clone();
-    req.json()
-        .from_err()
-        .and_then(move |val: Broker| match broker_set_s.send(val) {
-            Ok(()) => Ok(HttpResponse::Ok().json("")),
-            Err(e) => {
-                eprintln!("{:?}", e);
-                Ok(HttpResponse::BadRequest().json("message sending error"))
-            }
-        })
-        .responder()
+fn set_mqtt_server(broker: web::Json<Broker>, state: web::Data<State>) -> Result<HttpResponse> {
+    let broker_set_s = state.broker_set_s.clone();
+    match broker_set_s.send(broker.into_inner()) {
+        Ok(()) => Ok(HttpResponse::Ok().json("")),
+        Err(e) => {
+            eprintln!("{:?}", e);
+            Ok(HttpResponse::BadRequest().json("message sending error"))
+        }
+    }
 }
 
-fn set_name(req: &HttpRequest<State>) -> Box<Future<Item = HttpResponse, Error = Error>> {
-    let save_s = req.state().save_s.clone();
-    let device_name_s = req.state().device_name_s.clone();
-    req.json()
-        .from_err()
-        .and_then(move |val: NameSetting| {
-            // request to save new device name to config file
-            match save_s.send(SaveMsg::DeviceName(val.name.clone())) {
-                Ok(()) => {
-                    // request to change state's device name
-                    match device_name_s.send(val.name) {
-                        Ok(()) => (),
-                        Err(e) => eprintln!("{}", e),
-                    }
-                    Ok(HttpResponse::Ok().json(""))
-                }
-                Err(e) => {
-                    eprintln!("{}", e);
-                    Ok(HttpResponse::BadRequest().json("message sending error"))
-                }
+fn set_name(name_setting: web::Json<NameSetting>, state: web::Data<State>) -> Result<HttpResponse> {
+    let save_s = state.save_s.clone();
+    let device_name_s = state.device_name_s.clone();
+
+    // request to save new device name to config file
+    match save_s.send(SaveMsg::DeviceName(name_setting.name.clone())) {
+        Ok(()) => {
+            // request to change state's device name
+            match device_name_s.send(name_setting.name.clone()) {
+                Ok(()) => (),
+                Err(e) => eprintln!("{}", e),
             }
-        })
-        .responder()
+            Ok(HttpResponse::Ok().json(""))
+        }
+        Err(e) => {
+            eprintln!("{}", e);
+            Ok(HttpResponse::BadRequest().json("message sending error"))
+        }
+    }
 }
 
 pub fn run(
@@ -369,18 +347,20 @@ pub fn run(
         }
     });
 
-    server::new(move || {
-        vec![
-            App::with_state(state.clone())
-                .prefix("/api")
-                .resource("/status", |r| r.f(get_status))
-                .resource("/setNet", |r| r.f(set_net))
-                .resource("/setMqttServer", |r| r.f(set_mqtt_server))
-                .resource("/setName", |r| r.f(set_name)),
-            App::with_state(state.clone()).resource("/", |r| r.f(index)),
-        ]
+    HttpServer::new(move || {
+        App::new()
+            .register_data(web::Data::new(state.clone()))
+            .service(
+                web::scope("/api")
+                    .route("/status", web::get().to(get_status))
+                    .route("/setNet", web::post().to(set_net))
+                    .route("/setMqttServer", web::post().to(set_mqtt_server))
+                    .route("/setName", web::post().to(set_name)),
+            )
+            .route("/", web::get().to(index))
     })
     .bind("0.0.0.0:8080")
     .unwrap()
     .run()
+    .unwrap()
 }
