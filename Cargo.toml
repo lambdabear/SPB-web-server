@@ -14,7 +14,7 @@ ip-addr-op = { git = "https://github.com/lambdabear/ip-addr-op.git" }
 iproute = { git = "https://github.com/lambdabear/iproute.git" }
 ipnetwork = "0.14"
 rand = "0.6"
-crossbeam-channel = "0.3"
+crossbeam-channel = "0.4"
 publicsuffix = { version = "1.5", default-features = false }
 
 spb-config = { git = "https://github.com/lambdabear/SPB-config.git" }
